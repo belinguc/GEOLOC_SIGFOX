@@ -4,11 +4,26 @@ import sys
 
 
 def read_csv(csv_file):
+    """
+    Converts a given csv file to a pandas DataFrame
+    :param csv_file: a csv file
+    :return: a pandas Dataframe with the csv file information
+    """
+
     df = pd.read_csv(csv_file)
     return df
 
 
 def apply_method(method, df, means, min_rssi, list_of_bs):
+    """
+    Creates a features matrix given a method name
+    :param method: the method name
+    :param df: the DataFrame to convert
+    :param means: mean of train set, validation set and test set
+    :param min_rssi: the minimum rssi value
+    :param list_of_bs: the list of all existing bsid
+    :return: a pandas DataFrame that corresponds to the features matrix
+    """
     if method == 'lat_lng_dummies':
         df_feat = lat_lng_dummies(df, list_of_bs, means, min_rssi)
     else:
@@ -22,10 +37,22 @@ def apply_method(method, df, means, min_rssi, list_of_bs):
 
 
 def get_means(df):
+    """
+    Computes latitude and longtude mean
+    :param df: a pandas DataFrame
+    :return: a DataFrame with the computed means
+    """
     return df[['bs_lat', 'bs_lng']].mean()
 
 
 def compute_total_mean(train, val, test):
+    """
+    Computes the weighted mean for train set, validation set and test set depending on the size of each set
+    :param train: train DataFrame
+    :param val: validation DataFrame
+    :param test: test DataFrame
+    :return: the weighted mean
+    """
     train_size = len(train)
     val_size = len(val)
     test_size = len(test)
@@ -38,7 +65,13 @@ def compute_total_mean(train, val, test):
         train_size + val_size + test_size)
     return total
 
+
 def get_min(df):
+    """
+    Returns the minimum value of rssi
+    :param df: a DataFrame
+    :return: the minimum rssi of the DataFrame
+    """
     return df['rssi'].min()
 
 
@@ -49,13 +82,25 @@ def compute_total_min(train, val, test):
 
 # METHOD 1
 def lat_lng_dummies(df, list_of_bs, means, min_rssi):
+    """
+
+    Affects the latitude * rssi of a given observation and the longitude * rssi on an
+    other column on the corresponding base station.
+    Affects the latitude * min_rssi (and longitude * min_rssi respectively) everywhere else
+
+    :param df: a DataFrame
+    :param list_of_bs: the list of all of the bsid
+    :param means: the weighted mean
+    :param min_rssi: the minimum rssi
+    :return: a feature matrix
+    """
     list_lats = [str(bs) + '_lat' for bs in list_of_bs]
     list_lngs = [str(bs) + '_lng' for bs in list_of_bs]
     list_columns = list_lats + list_lngs + ['did']
 
     min_rssi = min_rssi
-    mean_lats = means['bs_lat']
-    mean_lngs = means['bs_lng']
+    mean_lats = means['bs_lat'] * min_rssi
+    mean_lngs = means['bs_lng'] * min_rssi
 
     df_mess_bs_group = df.groupby(['objid'], as_index=False)  # group data by message (objid)
     messages = np.unique(df['objid'])
@@ -71,17 +116,25 @@ def lat_lng_dummies(df, list_of_bs, means, min_rssi):
         lats = df_mess_bs_group.get_group(key)['bs_lat'].values
         lngs = df_mess_bs_group.get_group(key)['bs_lng'].values
         df_feat.loc[idx, 'did'] = df_mess_bs_group.get_group(key)['did'].values[0]
+        rssi = df_mess_bs_group.get_group(key)['rssi'].values
         for r, bsid in enumerate(df_mess_bs_group.get_group(key)['bsid'], 0):
             lat = str(bsid) + '_lat'
             lng = str(bsid) + '_lng'
-            df_feat.loc[idx, lat] = lats[r] * min_rssi
-            df_feat.loc[idx, lng] = lngs[r] * min_rssi
+            df_feat.loc[idx, lat] = lats[r] * rssi[r]
+            df_feat.loc[idx, lng] = lngs[r] * rssi[r]
         idx = idx + 1
     return df_feat
 
 
 # METHOD 2
 def rssis(df, list_of_bs):
+    """
+    Affects the rssi_value of a given observation on the corresponding base station
+
+    :param df: the DataFrame
+    :param list_of_bs: the list of all of the bsid
+    :return: a feature matrix
+    """
     list_columns = [str(bs) + '_rssi' for bs in list_of_bs] + ['did']
 
     df_mess_bs_group = df.groupby(['objid'], as_index=False)  # group data by message (objid)
@@ -102,24 +155,23 @@ def rssis(df, list_of_bs):
     return df_feat
 
 
- # METHOD 3
-def rssis_filtered(df, list_of_bs, filter_threshold=0):
-    if filter_threshold > 0:
-        df = rssi_filter(df, filter_threshold)
-    df_feat = rssis(df, list_of_bs)
-    return df_feat
-
-
-def rssi_filter(df, filter_threshold):
-    df_feat = df[df.rssi >= filter_threshold]
-    return df_feat
-
-
 def save_csv(df, name):
+    """
+    Save a given DataFrame into a CSV file
+    :param df: the DataFrame
+    :param name: the name of the CSV file
+    :return:
+    """
     df.to_csv(name, sep=';', index=False)
 
 
 def ground_truth_const(df_mess, pos):
+    """
+    Compute the groundtruth
+    :param df_mess: the DataFrame
+    :param pos: the labels
+    :return: the ground truth
+    """
     df_mess_pos = df_mess.copy()
     df_mess_pos[['lat', 'lng']] = pos
 
@@ -135,10 +187,10 @@ def ground_truth_const(df_mess, pos):
 if __name__ == '__main__':
     # args : csv_train csv_val csv_test csv_train_y csv_val_y method
     args = sys.argv[1:]
-    if len(args) < 6 or len(sys.argv) > 6:
+    if len(args) < 6 or len(args) > 6:
         print("""\
         Usage: csv_train csv_val csv_test csv_train_y csv_val_y method \
-
+        
         Available methods : lat_lng_dummies, rssi
         """)
         sys.exit(1)
@@ -165,9 +217,9 @@ if __name__ == '__main__':
     gt_train = ground_truth_const(train, y_train)
     gt_val = ground_truth_const(val, y_val)
 
-    # save_csv(gt_train, 'ground_truth_train.csv')
-    # save_csv(gt_val, 'ground_truth_val.csv')
-    # print("Length ground truths : ", len(gt_train), len(gt_val))
+    save_csv(gt_train, 'ground_truth_train.csv')
+    save_csv(gt_val, 'ground_truth_val.csv')
+    print("Length ground truths : ", len(gt_train), len(gt_val))
 
     # get method
     method = args[5]
